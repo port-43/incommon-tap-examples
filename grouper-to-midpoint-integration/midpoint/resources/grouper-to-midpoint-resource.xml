@@ -1,0 +1,195 @@
+<resource xmlns="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+          xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+          xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3"
+          xmlns:org="http://midpoint.evolveum.com/xml/ns/public/common/org-3"
+          xmlns:q="http://prism.evolveum.com/xml/ns/public/query-3"
+          xmlns:ri="http://midpoint.evolveum.com/xml/ns/public/resource/instance-3"
+          xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3"
+          xmlns:mr="http://prism.evolveum.com/xml/ns/public/matching-rule-3"
+          oid="bef1597d-3cab-4d66-bd6f-65f7af2ef0e0">
+    <name>grouper-to-midpoint</name>
+    <connectorRef>
+        <filter>
+            <q:and>
+                <q:equal>
+                    <q:path>connectorType</q:path>
+                    <q:value>org.identityconnectors.databasetable.DatabaseTableConnector</q:value>
+                </q:equal>
+                <q:equal>
+                    <q:path>connectorVersion</q:path>
+                    <q:value>1.5.0.1</q:value>
+                </q:equal>
+            </q:and>
+        </filter>
+    </connectorRef>
+    <connectorConfiguration xmlns:icfc="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/connector-schema-3">
+        <icfc:configurationProperties xmlns:dbtable="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.polygon.connector-databasetable/org.identityconnectors.databasetable.DatabaseTableConnector">
+            <dbtable:host>hostname</dbtable:host>
+            <dbtable:port>5432</dbtable:port>
+            <dbtable:user>dbuser</dbtable:user>
+            <dbtable:password>dbpassword</dbtable:password>
+            <dbtable:database>grouper_to_midpoint_database</dbtable:database>
+            <dbtable:table>grouper_to_midpoint_view</dbtable:table>
+            <dbtable:keyColumn>subject_id</dbtable:keyColumn>
+            <dbtable:jdbcDriver>org.postgresql.Driver</dbtable:jdbcDriver>
+            <dbtable:jdbcUrlTemplate>jdbc:postgresql://hostname:5432/grouper_to_midpoint_database</dbtable:jdbcUrlTemplate>
+            <dbtable:allNative>true</dbtable:allNative>
+            <dbtable:quoting>Double</dbtable:quoting>
+            <dbtable:changeLogColumn>last_update</dbtable:changeLogColumn>
+        </icfc:configurationProperties>
+    </connectorConfiguration>
+    <projection>
+        <assignmentPolicyEnforcement>relative</assignmentPolicyEnforcement>
+    </projection>
+
+    <schemaHandling>
+        <objectType>
+            <kind>account</kind>
+            <intent>default</intent>
+            <default>true</default>
+            <objectClass>ri:AccountObjectClass</objectClass>
+            <attribute>
+                <ref>icfs:name</ref>
+                <limitations>
+                    <access>
+                        <read>true</read>
+                    </access>
+                </limitations>
+            </attribute>
+            <attribute>
+                <ref>ri:roles</ref>
+                <fetchStrategy>explicit</fetchStrategy>
+                <storageStrategy>normal</storageStrategy>
+                <inbound>
+                    <trace>false</trace>
+                    <strength>strong</strength>
+                    <authoritative>true</authoritative>
+                    <expression>
+                        <assignmentTargetSearch>
+                            <targetType>OrgType</targetType>
+                            <filter>
+                                <q:equal>
+                                    <q:path>name</q:path>
+                                    <expression>
+                                        <script>
+                                            <code>
+                                                return input?.tokenize('\\|').collect {it.trim()}
+                                            </code>
+                                        </script>
+                                    </expression>
+                                </q:equal>
+                            </filter>
+                            <populate>
+                                <populateItem>
+                                    <expression>grouper</expression>
+                                    <target>
+                                        <path>subtype</path>
+                                    </target>
+                                </populateItem>
+                            </populate>
+                        </assignmentTargetSearch>
+                    </expression>
+                    <target>
+                        <path>assignment</path>
+                        <set>
+                            <condition>
+                                <script>
+                                    <code>
+                                        import com.evolveum.midpoint.schema.constants.*
+                                        import javax.xml.namespace.QName
+                                        import com.evolveum.midpoint.xml.ns._public.common.common_3.OrgType
+                                        commonNamespace = "http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                                        QName orgType = new QName(commonNamespace, "OrgType")
+
+                                        // Check if assignment is OrgType and subtype is grouper
+                                        if (input.targetRef != null &amp;&amp; input.targetRef.getType() == orgType) {
+                                            org = midpoint.getObject(OrgType.class, input.targetRef.oid)
+                                            inRange = org.subtype?.contains('grouper')
+                                            return inRange
+                                        }
+                                    </code>
+                                </script>
+                            </condition>
+                        </set>
+                    </target>
+                </inbound>
+            </attribute>
+        </objectType>
+    </schemaHandling>
+
+    <synchronization>
+        <objectSynchronization>
+            <objectClass>ri:AccountObjectClass</objectClass>
+            <kind>account</kind>
+            <intent>default</intent>
+            <focusType>UserType</focusType>
+            <enabled>true</enabled>
+            <correlation>
+                <q:equal>
+                    <q:path>extension/idattribute</q:path>
+                    <expression>
+                        <path xmlns:icfs="http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/resource-schema-3">$projection/attributes/icfs:name</path>
+                    </expression>
+                </q:equal>
+            </correlation>
+            <reconcile>true</reconcile>
+            <reaction>
+                <situation>unlinked</situation>
+                <synchronize>true</synchronize>
+                <reconcile>true</reconcile>
+                <action>
+                    <handlerUri>http://midpoint.evolveum.com/xml/ns/public/model/action-3#link</handlerUri>
+                </action>
+            </reaction>
+            <reaction>
+                <situation>linked</situation>
+                <reconcile>true</reconcile>
+                <synchronize>true</synchronize>
+            </reaction>
+            <reaction>
+                <situation>deleted</situation>
+                <synchronize>true</synchronize>
+                <action>
+                    <synchornize/>
+                    <handlerUri>http://midpoint.evolveum.com/xml/ns/public/model/action-3#unlink</handlerUri>
+                </action>
+            </reaction>
+        </objectSynchronization>
+    </synchronization>
+
+    <capabilities>
+        <configured xmlns:cap="http://midpoint.evolveum.com/xml/ns/public/resource/capabilities-3">
+            <cap:liveSync>
+                <cap:enabled>true</cap:enabled>
+            </cap:liveSync>
+            <cap:testConnection>
+                <cap:enabled>true</cap:enabled>
+            </cap:testConnection>
+            <cap:create>
+                <cap:enabled>false</cap:enabled>
+            </cap:create>
+            <cap:update>
+                <cap:enabled>false</cap:enabled>
+                <cap:addRemoveAttributeValues>true</cap:addRemoveAttributeValues>
+            </cap:update>
+            <cap:delete>
+                <cap:enabled>false</cap:enabled>
+            </cap:delete>
+            <cap:script>
+                <cap:enabled>true</cap:enabled>
+                <cap:host>
+                    <cap:type>connector</cap:type>
+                </cap:host>
+            </cap:script>
+            <cap:read>
+                <cap:enabled>true</cap:enabled>
+                <cap:returnDefaultAttributesOption>true</cap:returnDefaultAttributesOption>
+            </cap:read>
+            <cap:activation>
+                <cap:status>
+                    <cap:enabled>true</cap:enabled>
+                </cap:status>
+            </cap:activation>
+        </configured>
+    </capabilities>
+</resource>
